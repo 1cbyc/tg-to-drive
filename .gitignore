@@ -47,6 +47,3 @@ hide/
 *.md
 !README.md
 !.env.example
-!QUICK_START.md
-!ARCHITECTURE.md
-!SECURITY.md
