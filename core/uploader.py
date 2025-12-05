@@ -4,7 +4,7 @@ Google Drive uploader module
 
 import os
 import shutil
-from typing import Optional
+from typing import Optional, Tuple
 
 
 class DriveUploader:
@@ -13,7 +13,7 @@ class DriveUploader:
     def __init__(self, drive_folder_path: str):
         self.drive_folder_path = drive_folder_path
     
-    def upload_file(self, temp_file_path: str, filename: str) -> tuple[bool, Optional[str]]:
+    def upload_file(self, temp_file_path: str, filename: str) -> Tuple[bool, Optional[str]]:
         """
         Move file from temp directory to Drive and verify.
         
@@ -24,6 +24,7 @@ class DriveUploader:
         Returns:
             tuple: (success: bool, final_path: Optional[str])
         """
+        from typing import Tuple
         # Handle filename conflicts in Drive
         drive_file_path = os.path.join(self.drive_folder_path, filename)
         counter = 1
