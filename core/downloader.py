@@ -52,6 +52,7 @@ class TelegramDownloader:
         for attempt in range(max_retries):
             try:
                 # Use the event loop to run the async download
+                # Increase timeout for large files
                 result = self.client.loop.run_until_complete(
                     self.client.download_media(message, file=temp_file_path)
                 )
@@ -65,6 +66,17 @@ class TelegramDownloader:
                 print(f"  ⚠ FloodWait: Waiting {wait_time} seconds before retry...")
                 time.sleep(wait_time)
                 continue
+            except (TimeoutError, ConnectionError) as e:
+                # Handle timeout and connection errors with longer wait
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 10  # Progressive backoff: 10s, 20s, 30s
+                    print(f"  ⚠ Timeout/Connection error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                    print(f"  ⏳ Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"  ✗ Download failed after {max_retries} attempts: {str(e)}")
+                    return None
             except Exception as e:
                 if attempt < max_retries - 1:
                     print(f"  ⚠ Download error (attempt {attempt + 1}/{max_retries}): {str(e)}")
