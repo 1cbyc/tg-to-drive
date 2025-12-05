@@ -48,9 +48,13 @@ class TelegramDownloader:
             counter += 1
         
         # Download with retry logic
+        # download_media is async, so we need to await it properly
         for attempt in range(max_retries):
             try:
-                result = self.client.download_media(message, file=temp_file_path)
+                # Use the event loop to run the async download
+                result = self.client.loop.run_until_complete(
+                    self.client.download_media(message, file=temp_file_path)
+                )
                 if result and os.path.exists(result):
                     return result
                 elif os.path.exists(temp_file_path):
