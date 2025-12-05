@@ -27,6 +27,13 @@ class MirrorBot:
         if not self.config.bot_token:
             raise ValueError("Bot token is required for bot mode")
         
+        # Pyrogram requires api_id and api_hash even for bot mode
+        if not self.config.api_id or not self.config.api_hash:
+            raise ValueError(
+                "TELEGRAM_API_ID and TELEGRAM_API_HASH are required for bot mode. "
+                "Set them as environment variables."
+            )
+        
         self.bot = Client(
             "mirror_bot",
             api_id=self.config.api_id,
