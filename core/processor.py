@@ -186,6 +186,13 @@ class MirrorProcessor:
                     # Retry this message
                     idx -= 1
                     continue
+                except (TimeoutError, ConnectionError) as e:
+                    print(f"\n  ⚠ Timeout/Connection error on message {message.id}: {str(e)}")
+                    print(f"  ⏳ Waiting 30 seconds before retry...")
+                    time.sleep(30)
+                    # Retry this message
+                    idx -= 1
+                    continue
                 except Exception as e:
                     print(f"\n  ✗ Error processing message {message.id}: {str(e)}")
                     self.failed_count += 1
