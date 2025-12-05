@@ -120,14 +120,14 @@ python run_bot.py
 **Example:**
 ```
 You: /mirror @my_channel
-Bot: 🚀 Starting mirror for @my_channel...
+Bot: Starting mirror for @my_channel...
 
 You: /status
-Bot: 📊 Mirror Status
-    ✓ Downloaded: 45
-    ⊘ Skipped: 12
-    ✗ Failed: 2
-    📦 Total Size: 12.34 GB
+Bot: Mirror Status
+    Downloaded: 45
+    Skipped: 12
+    Failed: 2
+    Total Size: 12.34 GB
 ```
 
 ## Configuration
