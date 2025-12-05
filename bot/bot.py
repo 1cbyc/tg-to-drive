@@ -197,15 +197,11 @@ class MirrorBot:
             self.is_running = False
             self.current_task = None
     
+    # Note: Bot is started via bot.bot.run() in run_bot.py
+    # This method is kept for compatibility but not used
     async def start(self):
-        """Start the bot."""
-        if not self.bot:
-            self.initialize()
-        
-        print("🤖 Starting Telegram bot...")
-        await self.bot.start()
-        print("✓ Bot started! Send /start to your bot to begin.")
-        await self.bot.idle()
+        """Start the bot asynchronously (not used - use bot.bot.run() instead)."""
+        pass
     
     async def stop(self):
         """Stop the bot."""
