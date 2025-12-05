@@ -7,11 +7,22 @@ Usage:
 Requires:
     - TELEGRAM_BOT_TOKEN environment variable
     - TELEGRAM_API_ID and TELEGRAM_API_HASH
+
+You can use .env file - see .env.example
+Or use load_env.py to load from .env file
 """
 
 import asyncio
 import os
 import sys
+
+# Try to load from .env file if it exists
+try:
+    from load_env import load_env
+    load_env()
+except ImportError:
+    pass  # load_env.py is optional
+
 from core.config import Config
 from bot.bot import MirrorBot
 
