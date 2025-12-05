@@ -6,14 +6,14 @@ A Python tool designed to mirror files from Telegram channels to Google Drive, o
 
 ## Features
 
-- ✅ **Sequential Processing**: Downloads one file at a time to manage limited disk space
-- ✅ **FloodWait Handling**: Automatically handles Telegram rate limits with retry logic
-- ✅ **Resume Capability**: Skips files that already exist in Drive folder
-- ✅ **Media Filtering**: Only processes messages with downloadable media (documents/photos)
-- ✅ **Progress Tracking**: Real-time progress with file counts and sizes
-- ✅ **Error Recovery**: Robust error handling with automatic retries
-- ✅ **Optional Bot Interface**: Monitor and control via Telegram bot commands
-- ✅ **Modular Architecture**: Clean, maintainable code structure
+- **Sequential Processing**: Downloads one file at a time to manage limited disk space
+- **FloodWait Handling**: Automatically handles Telegram rate limits with retry logic
+- **Resume Capability**: Skips files that already exist in Drive folder
+- **Media Filtering**: Only processes messages with downloadable media (documents/photos)
+- **Progress Tracking**: Real-time progress with file counts and sizes
+- **Error Recovery**: Robust error handling with automatic retries
+- **Optional Bot Interface**: Monitor and control via Telegram bot commands
+- **Modular Architecture**: Clean, maintainable code structure
 
 ## Architecture
 
