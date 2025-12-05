@@ -12,7 +12,6 @@ You can use .env file - see .env.example
 Or use load_env.py to load from .env file
 """
 
-import asyncio
 import os
 import sys
 
@@ -27,7 +26,7 @@ from core.config import Config
 from bot.bot import MirrorBot
 
 
-async def main():
+def main():
     """Main function for bot mode."""
     config = Config()
     
@@ -52,21 +51,23 @@ async def main():
         print("\nOr use the standalone script: python telegram_to_drive_mirror.py")
         return
     
-    # Create and start bot
+    # Create bot
     bot = MirrorBot(config)
     
+    # Initialize bot client
+    bot.initialize()
+    
+    # Start the bot using Pyrogram's run() method
+    print("🤖 Starting Telegram bot...")
     try:
-        await bot.start()
+        bot.bot.run()
     except KeyboardInterrupt:
         print("\n⚠ Bot stopped by user")
     except Exception as e:
         print(f"\n✗ Fatal error: {str(e)}")
         import traceback
         traceback.print_exc()
-    finally:
-        await bot.stop()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    main()
