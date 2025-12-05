@@ -41,3 +41,6 @@ temp_downloads/
 # 1cbyc
 auto.ps1
 old/
+hide/
+*.md
+!README.md
