@@ -7,12 +7,23 @@ processing files sequentially to manage limited disk space.
 
 Can run standalone or with optional Telegram bot interface.
 
+You can use .env file - see .env.example
+Or use load_env.py to load from .env file
+
 Author: Open Source Project
 License: MIT
 """
 
 import os
 import sys
+
+# Try to load from .env file if it exists
+try:
+    from load_env import load_env
+    load_env()
+except ImportError:
+    pass  # load_env.py is optional
+
 from core.config import Config
 from core.processor import MirrorProcessor
 
