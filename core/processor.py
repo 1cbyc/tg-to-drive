@@ -94,7 +94,10 @@ class MirrorProcessor:
         try:
             # Verify channel access
             print(f"\n✓ Connected! Accessing channel: {self.config.channel_link}")
-            entity = self.client.get_entity(self.config.channel_link)
+            # get_entity is async, so we need to await it properly
+            entity = self.client.loop.run_until_complete(
+                self.client.get_entity(self.config.channel_link)
+            )
             channel_title = entity.title if hasattr(entity, 'title') else self.config.channel_link
             print(f"✓ Channel found: {channel_title}")
             
