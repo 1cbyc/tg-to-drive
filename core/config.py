@@ -67,13 +67,17 @@ class Config:
         return os.path.join(self.temp_download_dir, 'telegram_session')
     
     def mount_drive(self) -> bool:
-        """Mount Google Drive if running in Colab."""
+        """Check if Google Drive is mounted (should be mounted in Colab notebook cell)."""
         if self.is_colab:
-            try:
-                drive.mount('/content/drive')
+            # Check if Drive is already mounted
+            if os.path.exists('/content/drive/MyDrive'):
+                print("✓ Google Drive is mounted")
                 return True
-            except Exception as e:
-                print(f"✗ Failed to mount Google Drive: {str(e)}")
+            else:
+                print("✗ Google Drive is not mounted!")
+                print("  Please run the Drive mount cell in the Colab notebook first:")
+                print("  from google.colab import drive")
+                print("  drive.mount('/content/drive')")
                 return False
         else:
             print("⚠ Not running in Colab - assuming Drive is already accessible")
