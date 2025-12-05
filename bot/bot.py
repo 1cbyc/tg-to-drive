@@ -168,14 +168,29 @@ class MirrorBot:
     
     async def _run_mirror(self, start_message: Message):
         """Run the mirror process."""
+        import concurrent.futures
+        
         try:
-            if not self.processor.initialize():
+            # Run processor in thread executor since it uses sync Telethon
+            loop = asyncio.get_event_loop()
+            executor = concurrent.futures.ThreadPoolExecutor()
+            
+            # Initialize in executor
+            init_success = await loop.run_in_executor(
+                executor,
+                self.processor.initialize
+            )
+            
+            if not init_success:
                 await start_message.reply_text("❌ Failed to initialize. Check your configuration.")
                 self.is_running = False
                 return
             
-            # Run processing
-            success = self.processor.process_channel()
+            # Run processing in executor
+            success = await loop.run_in_executor(
+                executor,
+                self.processor.process_channel
+            )
             
             if success:
                 await start_message.reply_text(
@@ -191,9 +206,14 @@ class MirrorBot:
             await start_message.reply_text("🛑 Mirror process was cancelled.")
         except Exception as e:
             await start_message.reply_text(f"❌ Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
         finally:
             if self.processor:
-                self.processor.cleanup()
+                # Cleanup in executor
+                loop = asyncio.get_event_loop()
+                executor = concurrent.futures.ThreadPoolExecutor()
+                await loop.run_in_executor(executor, self.processor.cleanup)
             self.is_running = False
             self.current_task = None
     
