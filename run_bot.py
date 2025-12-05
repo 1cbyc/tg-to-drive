@@ -34,8 +34,11 @@ async def main():
     
     # Validate required config
     if not config.api_id or not config.api_hash:
-        print("✗ Error: TELEGRAM_API_ID and TELEGRAM_API_HASH are required")
-        print("Set them as environment variables or they will be prompted")
+        print("✗ Error: TELEGRAM_API_ID and TELEGRAM_API_HASH are required for bot mode")
+        print("\nSet them as environment variables:")
+        print("  $env:TELEGRAM_API_ID = 'your_api_id'")
+        print("  $env:TELEGRAM_API_HASH = 'your_api_hash'")
+        print("\nOr use the standalone script: python telegram_to_drive_mirror.py")
         return
     
     # Create and start bot
