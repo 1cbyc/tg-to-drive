@@ -1,0 +1,7 @@
+tg-to-drive/
+├── telegram_to_drive_mirror.py  # Main script
+├── requirements.txt             # Dependencies
+├── .gitignore                   # Git ignore rules
+├── README.md                    # Documentation
+├── LICENSE                      # MIT License
+└── old/                         # Reference projects (excluded)
