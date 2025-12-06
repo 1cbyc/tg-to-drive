@@ -153,10 +153,10 @@ class TelegramDownloader:
             )
             monitor_thread.start()
         
-        # Calculate timeout: 5 minutes per GB, minimum 10 minutes, maximum 2 hours
-        # But add a shorter initial connection timeout (2 minutes) to detect API-level hangs
-        timeout_seconds = max(600, min(7200, int(file_size / (1024**3) * 300))) if file_size else 3600
-        initial_timeout = 120  # 2 minutes to detect if download starts at all
+        # Calculate timeout: 10 minutes per GB, minimum 15 minutes, maximum 3 hours
+        # This accounts for slower connections and large files
+        # For 3.91GB at 2 MB/s = ~33 minutes, so 10 min/GB gives ~39 minutes which is reasonable
+        timeout_seconds = max(900, min(10800, int(file_size / (1024**3) * 600))) if file_size else 3600
         
         # Download with retry logic
         # download_media is async, so we need to await it properly
@@ -169,10 +169,9 @@ class TelegramDownloader:
                     progress_callback=progress_callback
                 )
                 
-                # Wrap with timeout (use shorter timeout for first attempt to detect hangs)
-                current_timeout = initial_timeout if attempt == 0 else timeout_seconds
+                # Wrap with timeout (use full timeout from start - files can be large)
                 result = self.client.loop.run_until_complete(
-                    asyncio.wait_for(download_task, timeout=current_timeout)
+                    asyncio.wait_for(download_task, timeout=timeout_seconds)
                 )
                 
                 # Stop monitor thread
@@ -198,31 +197,25 @@ class TelegramDownloader:
                 
                 # Check if file exists and has content
                 current_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
-                timeout_used = initial_timeout if attempt == 0 else timeout_seconds
                 
-                if attempt == 0 and current_size == 0:
-                    # First attempt and no file created - likely stuck at API level
-                    print(f"\n  ⚠ Download didn't start after {timeout_used}s - no file created")
-                    print(f"  💡 This may indicate:")
-                    print(f"     - Network connectivity issue")
-                    print(f"     - Telegram server problem")
-                    print(f"     - File too large for current connection")
-                    print(f"  ⏳ Retrying with longer timeout...")
-                    time.sleep(10)
-                    continue
-                elif attempt < max_retries - 1:
-                    print(f"\n  ⚠ Download timeout after {timeout_used}s (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    print(f"\n  ⚠ Download timeout after {timeout_seconds}s (attempt {attempt + 1}/{max_retries})")
                     if current_size > 0:
-                        print(f"  📊 Downloaded so far: {format_size(current_size)} / {format_size(file_size)}")
+                        percent = (current_size / file_size * 100) if file_size > 0 else 0
+                        print(f"  📊 Downloaded so far: {format_size(current_size)} / {format_size(file_size)} ({percent:.1f}%)")
                         print(f"  💡 File was downloading but timed out. Retrying...")
+                    else:
+                        print(f"  💡 Download didn't start - may indicate network/server issue")
                     print(f"  ⏳ Retrying in 30 seconds...")
                     time.sleep(30)
-                    # Use full timeout for subsequent attempts
+                    # Increase timeout slightly for next attempt (in case connection is slow)
+                    timeout_seconds = int(timeout_seconds * 1.2)
                     continue
                 else:
                     print(f"\n  ✗ Download failed: Timeout after {max_retries} attempts")
                     if current_size > 0:
-                        print(f"  📊 Partial download: {format_size(current_size)} / {format_size(file_size)}")
+                        percent = (current_size / file_size * 100) if file_size > 0 else 0
+                        print(f"  📊 Partial download: {format_size(current_size)} / {format_size(file_size)} ({percent:.1f}%)")
                     return None
             except FloodWaitError as e:
                 wait_time = e.seconds
