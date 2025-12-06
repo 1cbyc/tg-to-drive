@@ -40,9 +40,19 @@ class TelegramDownloader:
         last_size = 0
         last_update = time.time()
         stalled_count = 0
+        check_interval = 5  # Check every 5 seconds
+        wait_count = 0
+        
+        # Wait for file to start appearing (up to 30 seconds)
+        while not os.path.exists(file_path) and wait_count < 6 and not stop_event.is_set():
+            time.sleep(5)
+            wait_count += 1
+        
+        if not os.path.exists(file_path) and not stop_event.is_set():
+            print("  ⏳ Waiting for download to start...")
         
         while not stop_event.is_set():
-            time.sleep(10)  # Check every 10 seconds
+            time.sleep(check_interval)
             
             if os.path.exists(file_path):
                 current_size = os.path.getsize(file_path)
@@ -51,7 +61,8 @@ class TelegramDownloader:
                 # If file is growing, show progress
                 if current_size > last_size:
                     percent = (current_size / total_size * 100) if total_size > 0 else 0
-                    speed = (current_size - last_size) / (current_time - last_update) if current_time > last_update else 0
+                    time_diff = current_time - last_update if current_time > last_update else check_interval
+                    speed = (current_size - last_size) / time_diff if time_diff > 0 else 0
                     speed_mb = speed / (1024 * 1024)
                     
                     bar_length = 30
@@ -65,17 +76,17 @@ class TelegramDownloader:
                 else:
                     # File not growing - might be stalled
                     stalled_count += 1
-                    if stalled_count >= 3:  # 30 seconds of no growth
-                        print(f"\n  ⚠ Download appears stalled (no progress for 30s). File size: {format_size(current_size)}")
+                    if stalled_count >= 3:  # 15 seconds of no growth (3 checks * 5s)
+                        print(f"\n  ⚠ Download appears stalled (no progress for 15s). File size: {format_size(current_size)}")
                         stalled_count = 0  # Reset to avoid spam
                 
                 # If file is complete
                 if total_size > 0 and current_size >= total_size * 0.99:  # 99% complete
                     stop_event.set()
                     break
-            else:
-                # File doesn't exist yet, wait a bit
-                time.sleep(5)
+            elif not stop_event.is_set():
+                # File doesn't exist yet or was deleted, wait a bit more
+                time.sleep(2)
     
     def download_file(self, message, max_retries: int = 3) -> Optional[str]:
         """
@@ -112,11 +123,12 @@ class TelegramDownloader:
         
         if file_size and file_size > 50 * 1024 * 1024:  # > 50MB
             print(f"  ⏳ Starting download... (this may take a while for large files)")
+            print(f"  📊 Monitoring progress (updates every 5 seconds)...")
             progress_callback = self._progress_callback
             self._last_progress_bytes = 0
             self._last_progress_time = time.time()
             
-            # Start file size monitor as backup
+            # Start file size monitor as backup (will show progress even if callback fails)
             monitor_thread = threading.Thread(
                 target=self._monitor_file_size,
                 args=(temp_file_path, file_size, stop_monitor),
