@@ -19,6 +19,16 @@ class TelegramDownloader:
         self.client = client
         self.temp_dir = temp_dir
     
+    def _progress_callback(self, downloaded_bytes: int, total_bytes: int, filename: str):
+        """Progress callback for download updates."""
+        if total_bytes:
+            percent = (downloaded_bytes / total_bytes) * 100
+            downloaded_mb = downloaded_bytes / (1024 * 1024)
+            total_mb = total_bytes / (1024 * 1024)
+            # Update progress every 5% or every 50MB, whichever comes first
+            if downloaded_bytes % max(total_bytes // 20, 50 * 1024 * 1024) < 1024 * 1024:
+                print(f"  📥 Progress: {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)", end='\r')
+    
     def download_file(self, message, max_retries: int = 3) -> Optional[str]:
         """
         Download a file from a Telegram message with FloodWait handling.
@@ -47,6 +57,11 @@ class TelegramDownloader:
             temp_file_path = os.path.join(self.temp_dir, f"{name}_{counter}{ext}")
             counter += 1
         
+        # Create progress callback for large files (>100MB)
+        progress_callback = None
+        if file_size and file_size > 100 * 1024 * 1024:  # > 100MB
+            progress_callback = lambda d, t: self._progress_callback(d, t, filename)
+        
         # Download with retry logic
         # download_media is async, so we need to await it properly
         for attempt in range(max_retries):
@@ -54,11 +69,19 @@ class TelegramDownloader:
                 # Use the event loop to run the async download
                 # Increase timeout for large files
                 result = self.client.loop.run_until_complete(
-                    self.client.download_media(message, file=temp_file_path)
+                    self.client.download_media(
+                        message, 
+                        file=temp_file_path,
+                        progress_callback=progress_callback
+                    )
                 )
                 if result and os.path.exists(result):
+                    if progress_callback:
+                        print()  # New line after progress
                     return result
                 elif os.path.exists(temp_file_path):
+                    if progress_callback:
+                        print()  # New line after progress
                     return temp_file_path
                 return None
             except FloodWaitError as e:
