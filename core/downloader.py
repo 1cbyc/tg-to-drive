@@ -3,6 +3,7 @@ Telegram downloader module with FloodWait handling
 """
 
 import os
+import sys
 import time
 import asyncio
 import threading
@@ -31,7 +32,9 @@ class TelegramDownloader:
             bar_length = 30
             filled = int(bar_length * downloaded_bytes // total_bytes)
             bar = '█' * filled + '░' * (bar_length - filled)
-            print(f"  📥 [{bar}] {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)", end='\r', flush=True)
+            # Use sys.stdout.write for better control in Colab/Jupyter
+            sys.stdout.write(f"\r  📥 [{bar}] {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)")
+            sys.stdout.flush()
             self._last_progress_bytes = downloaded_bytes
             self._last_progress_time = time.time()
     
@@ -75,7 +78,9 @@ class TelegramDownloader:
                     bar_length = 30
                     filled = int(bar_length * current_size // total_size) if total_size > 0 else 0
                     bar = '█' * filled + '░' * (bar_length - filled)
-                    print(f"  📥 [{bar}] {percent:.1f}% ({format_size(current_size)} / {format_size(total_size)}) @ {speed_mb:.1f} MB/s [{elapsed}s]", end='\r', flush=True)
+                    # Use sys.stdout.write for better control in Colab/Jupyter
+                    sys.stdout.write(f"\r  📥 [{bar}] {percent:.1f}% ({format_size(current_size)} / {format_size(total_size)}) @ {speed_mb:.1f} MB/s [{elapsed}s]")
+                    sys.stdout.flush()
                     
                     last_size = current_size
                     last_update = current_time
