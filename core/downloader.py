@@ -4,12 +4,14 @@ Telegram downloader module with FloodWait handling
 
 import os
 import time
+import asyncio
+import threading
 from typing import Optional
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 
-from .utils import has_media, get_file_info
+from .utils import has_media, get_file_info, format_size
 
 
 class TelegramDownloader:
@@ -30,6 +32,50 @@ class TelegramDownloader:
             filled = int(bar_length * downloaded_bytes // total_bytes)
             bar = '█' * filled + '░' * (bar_length - filled)
             print(f"  📥 [{bar}] {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)", end='\r', flush=True)
+            self._last_progress_bytes = downloaded_bytes
+            self._last_progress_time = time.time()
+    
+    def _monitor_file_size(self, file_path: str, total_size: int, stop_event: threading.Event):
+        """Monitor file size and show progress if callback isn't working."""
+        last_size = 0
+        last_update = time.time()
+        stalled_count = 0
+        
+        while not stop_event.is_set():
+            time.sleep(10)  # Check every 10 seconds
+            
+            if os.path.exists(file_path):
+                current_size = os.path.getsize(file_path)
+                current_time = time.time()
+                
+                # If file is growing, show progress
+                if current_size > last_size:
+                    percent = (current_size / total_size * 100) if total_size > 0 else 0
+                    speed = (current_size - last_size) / (current_time - last_update) if current_time > last_update else 0
+                    speed_mb = speed / (1024 * 1024)
+                    
+                    bar_length = 30
+                    filled = int(bar_length * current_size // total_size) if total_size > 0 else 0
+                    bar = '█' * filled + '░' * (bar_length - filled)
+                    print(f"  📥 [{bar}] {percent:.1f}% ({format_size(current_size)} / {format_size(total_size)}) @ {speed_mb:.1f} MB/s", end='\r', flush=True)
+                    
+                    last_size = current_size
+                    last_update = current_time
+                    stalled_count = 0
+                else:
+                    # File not growing - might be stalled
+                    stalled_count += 1
+                    if stalled_count >= 3:  # 30 seconds of no growth
+                        print(f"\n  ⚠ Download appears stalled (no progress for 30s). File size: {format_size(current_size)}")
+                        stalled_count = 0  # Reset to avoid spam
+                
+                # If file is complete
+                if total_size > 0 and current_size >= total_size * 0.99:  # 99% complete
+                    stop_event.set()
+                    break
+            else:
+                # File doesn't exist yet, wait a bit
+                time.sleep(5)
     
     def download_file(self, message, max_retries: int = 3) -> Optional[str]:
         """
@@ -61,32 +107,76 @@ class TelegramDownloader:
         
         # Create progress callback for large files (>50MB)
         progress_callback = None
+        monitor_thread = None
+        stop_monitor = threading.Event()
+        
         if file_size and file_size > 50 * 1024 * 1024:  # > 50MB
             print(f"  ⏳ Starting download... (this may take a while for large files)")
             progress_callback = self._progress_callback
+            self._last_progress_bytes = 0
+            self._last_progress_time = time.time()
+            
+            # Start file size monitor as backup
+            monitor_thread = threading.Thread(
+                target=self._monitor_file_size,
+                args=(temp_file_path, file_size, stop_monitor),
+                daemon=True
+            )
+            monitor_thread.start()
+        
+        # Calculate timeout: 5 minutes per GB, minimum 10 minutes, maximum 2 hours
+        timeout_seconds = max(600, min(7200, int(file_size / (1024**3) * 300))) if file_size else 3600
         
         # Download with retry logic
         # download_media is async, so we need to await it properly
         for attempt in range(max_retries):
             try:
-                # Use the event loop to run the async download
-                # Increase timeout for large files
-                result = self.client.loop.run_until_complete(
-                    self.client.download_media(
-                        message, 
-                        file=temp_file_path,
-                        progress_callback=progress_callback
-                    )
+                # Use the event loop to run the async download with timeout
+                download_task = self.client.download_media(
+                    message, 
+                    file=temp_file_path,
+                    progress_callback=progress_callback
                 )
+                
+                # Wrap with timeout
+                result = self.client.loop.run_until_complete(
+                    asyncio.wait_for(download_task, timeout=timeout_seconds)
+                )
+                
+                # Stop monitor thread
+                if monitor_thread:
+                    stop_monitor.set()
+                    monitor_thread.join(timeout=2)
+                
                 if result and os.path.exists(result):
-                    if progress_callback:
+                    if progress_callback or monitor_thread:
                         print()  # New line after progress
                     return result
                 elif os.path.exists(temp_file_path):
-                    if progress_callback:
+                    if progress_callback or monitor_thread:
                         print()  # New line after progress
                     return temp_file_path
                 return None
+                
+            except asyncio.TimeoutError:
+                # Stop monitor thread
+                if monitor_thread:
+                    stop_monitor.set()
+                    monitor_thread.join(timeout=2)
+                
+                if attempt < max_retries - 1:
+                    current_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
+                    print(f"\n  ⚠ Download timeout after {timeout_seconds}s (attempt {attempt + 1}/{max_retries})")
+                    if current_size > 0:
+                        print(f"  📊 Downloaded so far: {format_size(current_size)} / {format_size(file_size)}")
+                    print(f"  ⏳ Retrying in 30 seconds...")
+                    time.sleep(30)
+                    # Increase timeout for next attempt
+                    timeout_seconds = int(timeout_seconds * 1.5)
+                    continue
+                else:
+                    print(f"\n  ✗ Download failed: Timeout after {max_retries} attempts")
+                    return None
             except FloodWaitError as e:
                 wait_time = e.seconds
                 print(f"  ⚠ FloodWait: Waiting {wait_time} seconds before retry...")
