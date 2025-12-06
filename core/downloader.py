@@ -19,15 +19,17 @@ class TelegramDownloader:
         self.client = client
         self.temp_dir = temp_dir
     
-    def _progress_callback(self, downloaded_bytes: int, total_bytes: int, filename: str):
+    def _progress_callback(self, downloaded_bytes: int, total_bytes: int):
         """Progress callback for download updates."""
-        if total_bytes:
+        if total_bytes and total_bytes > 0:
             percent = (downloaded_bytes / total_bytes) * 100
             downloaded_mb = downloaded_bytes / (1024 * 1024)
             total_mb = total_bytes / (1024 * 1024)
-            # Update progress every 5% or every 50MB, whichever comes first
-            if downloaded_bytes % max(total_bytes // 20, 50 * 1024 * 1024) < 1024 * 1024:
-                print(f"  📥 Progress: {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)", end='\r')
+            # Show progress with a simple progress bar
+            bar_length = 30
+            filled = int(bar_length * downloaded_bytes // total_bytes)
+            bar = '█' * filled + '░' * (bar_length - filled)
+            print(f"  📥 [{bar}] {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)", end='\r', flush=True)
     
     def download_file(self, message, max_retries: int = 3) -> Optional[str]:
         """
@@ -57,10 +59,11 @@ class TelegramDownloader:
             temp_file_path = os.path.join(self.temp_dir, f"{name}_{counter}{ext}")
             counter += 1
         
-        # Create progress callback for large files (>100MB)
+        # Create progress callback for large files (>50MB)
         progress_callback = None
-        if file_size and file_size > 100 * 1024 * 1024:  # > 100MB
-            progress_callback = lambda d, t: self._progress_callback(d, t, filename)
+        if file_size and file_size > 50 * 1024 * 1024:  # > 50MB
+            print(f"  ⏳ Starting download... (this may take a while for large files)")
+            progress_callback = self._progress_callback
         
         # Download with retry logic
         # download_media is async, so we need to await it properly
