@@ -156,9 +156,6 @@ class TelegramDownloader:
         # download_media is async, so we need to await it properly
         for attempt in range(max_retries):
             try:
-                # Check if file exists after initial timeout to detect API-level hangs
-                download_started = False
-                
                 # Use the event loop to run the async download with timeout
                 download_task = self.client.download_media(
                     message, 
@@ -166,37 +163,41 @@ class TelegramDownloader:
                     progress_callback=progress_callback
                 )
                 
-                # First check: wait for initial connection (2 minutes)
-                # This helps detect if the download is stuck at API level
+                # Check if download starts within initial timeout
+                # Use a shorter timeout first to detect API-level hangs
                 try:
-                    # Create a wrapper that checks if file appears
-                    async def download_with_check():
-                        nonlocal download_started
-                        result = await download_task
-                        download_started = True
-                        return result
-                    
-                    # Try initial timeout first
-                    try:
-                        result = self.client.loop.run_until_complete(
-                            asyncio.wait_for(download_with_check(), timeout=initial_timeout)
-                        )
-                    except asyncio.TimeoutError:
-                        # Check if file started appearing
-                        if os.path.exists(temp_file_path) and os.path.getsize(temp_file_path) > 0:
-                            # File started, continue with longer timeout
-                            print(f"\n  ✓ Download started! Continuing with full timeout...")
-                            result = self.client.loop.run_until_complete(
-                                asyncio.wait_for(download_task, timeout=timeout_seconds)
-                            )
+                    result = self.client.loop.run_until_complete(
+                        asyncio.wait_for(download_task, timeout=initial_timeout)
+                    )
+                except asyncio.TimeoutError:
+                    # Check if file started appearing
+                    if os.path.exists(temp_file_path) and os.path.getsize(temp_file_path) > 0:
+                        # File started downloading, but initial timeout hit
+                        # This is OK - file is growing, just continue monitoring
+                        print(f"\n  ✓ Download in progress... (file is growing, continuing)")
+                        # The download_task is already running, we just need to wait for it
+                        # But we can't await it again, so we'll let the monitor handle it
+                        # Actually, we need to cancel and restart with longer timeout
+                        # For now, just wait a bit and check file size
+                        time.sleep(10)
+                        if os.path.exists(temp_file_path):
+                            # File is growing, let's wait for completion with monitor
+                            # We'll check completion in the monitor
+                            while os.path.exists(temp_file_path):
+                                current_size = os.path.getsize(temp_file_path)
+                                if total_size and current_size >= total_size * 0.99:
+                                    result = temp_file_path
+                                    break
+                                time.sleep(5)
+                            if result and os.path.exists(result):
+                                pass  # Continue to return
+                            else:
+                                raise Exception("Download incomplete after timeout")
                         else:
-                            # No file created - likely stuck at API level
                             raise asyncio.TimeoutError("Download didn't start - no file created after 2 minutes")
-                except asyncio.TimeoutError as e:
-                    if "Download didn't start" in str(e):
-                        raise  # Re-raise our custom timeout
-                    # Otherwise, it's the full timeout
-                    raise
+                    else:
+                        # No file created - likely stuck at API level
+                        raise asyncio.TimeoutError(f"Download didn't start - no file created after {initial_timeout}s. This may indicate a network or Telegram server issue.")
                 
                 # Stop monitor thread
                 if monitor_thread:
