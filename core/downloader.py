@@ -42,14 +42,20 @@ class TelegramDownloader:
         stalled_count = 0
         check_interval = 5  # Check every 5 seconds
         wait_count = 0
+        start_time = time.time()
         
-        # Wait for file to start appearing (up to 30 seconds)
-        while not os.path.exists(file_path) and wait_count < 6 and not stop_event.is_set():
+        # Show heartbeat while waiting for file to appear
+        while not os.path.exists(file_path) and wait_count < 12 and not stop_event.is_set():  # Up to 60 seconds
+            elapsed = int(time.time() - start_time)
+            if wait_count % 2 == 0:  # Every 10 seconds
+                print(f"  ⏳ Waiting for download to start... ({elapsed}s elapsed)", end='\r', flush=True)
             time.sleep(5)
             wait_count += 1
         
         if not os.path.exists(file_path) and not stop_event.is_set():
-            print("  ⏳ Waiting for download to start...")
+            elapsed = int(time.time() - start_time)
+            print(f"\n  ⚠ File not created after {elapsed}s - download may be stuck at API level")
+            print(f"  💡 This might indicate a network/Telegram server issue")
         
         while not stop_event.is_set():
             time.sleep(check_interval)
@@ -57,6 +63,7 @@ class TelegramDownloader:
             if os.path.exists(file_path):
                 current_size = os.path.getsize(file_path)
                 current_time = time.time()
+                elapsed = int(current_time - start_time)
                 
                 # If file is growing, show progress
                 if current_size > last_size:
@@ -68,7 +75,7 @@ class TelegramDownloader:
                     bar_length = 30
                     filled = int(bar_length * current_size // total_size) if total_size > 0 else 0
                     bar = '█' * filled + '░' * (bar_length - filled)
-                    print(f"  📥 [{bar}] {percent:.1f}% ({format_size(current_size)} / {format_size(total_size)}) @ {speed_mb:.1f} MB/s", end='\r', flush=True)
+                    print(f"  📥 [{bar}] {percent:.1f}% ({format_size(current_size)} / {format_size(total_size)}) @ {speed_mb:.1f} MB/s [{elapsed}s]", end='\r', flush=True)
                     
                     last_size = current_size
                     last_update = current_time
@@ -77,7 +84,8 @@ class TelegramDownloader:
                     # File not growing - might be stalled
                     stalled_count += 1
                     if stalled_count >= 3:  # 15 seconds of no growth (3 checks * 5s)
-                        print(f"\n  ⚠ Download appears stalled (no progress for 15s). File size: {format_size(current_size)}")
+                        elapsed = int(current_time - start_time)
+                        print(f"\n  ⚠ Download stalled (no progress for 15s). Current: {format_size(current_size)} / {format_size(total_size)} [{elapsed}s total]")
                         stalled_count = 0  # Reset to avoid spam
                 
                 # If file is complete
@@ -85,7 +93,10 @@ class TelegramDownloader:
                     stop_event.set()
                     break
             elif not stop_event.is_set():
-                # File doesn't exist yet or was deleted, wait a bit more
+                # File doesn't exist yet or was deleted
+                elapsed = int(time.time() - start_time)
+                if elapsed > 60:  # After 60 seconds, warn
+                    print(f"\n  ⚠ Download seems stuck - no file created after {elapsed}s")
                 time.sleep(2)
     
     def download_file(self, message, max_retries: int = 3) -> Optional[str]:
@@ -137,12 +148,17 @@ class TelegramDownloader:
             monitor_thread.start()
         
         # Calculate timeout: 5 minutes per GB, minimum 10 minutes, maximum 2 hours
+        # But add a shorter initial connection timeout (2 minutes) to detect API-level hangs
         timeout_seconds = max(600, min(7200, int(file_size / (1024**3) * 300))) if file_size else 3600
+        initial_timeout = 120  # 2 minutes to detect if download starts at all
         
         # Download with retry logic
         # download_media is async, so we need to await it properly
         for attempt in range(max_retries):
             try:
+                # Check if file exists after initial timeout to detect API-level hangs
+                download_started = False
+                
                 # Use the event loop to run the async download with timeout
                 download_task = self.client.download_media(
                     message, 
@@ -150,10 +166,37 @@ class TelegramDownloader:
                     progress_callback=progress_callback
                 )
                 
-                # Wrap with timeout
-                result = self.client.loop.run_until_complete(
-                    asyncio.wait_for(download_task, timeout=timeout_seconds)
-                )
+                # First check: wait for initial connection (2 minutes)
+                # This helps detect if the download is stuck at API level
+                try:
+                    # Create a wrapper that checks if file appears
+                    async def download_with_check():
+                        nonlocal download_started
+                        result = await download_task
+                        download_started = True
+                        return result
+                    
+                    # Try initial timeout first
+                    try:
+                        result = self.client.loop.run_until_complete(
+                            asyncio.wait_for(download_with_check(), timeout=initial_timeout)
+                        )
+                    except asyncio.TimeoutError:
+                        # Check if file started appearing
+                        if os.path.exists(temp_file_path) and os.path.getsize(temp_file_path) > 0:
+                            # File started, continue with longer timeout
+                            print(f"\n  ✓ Download started! Continuing with full timeout...")
+                            result = self.client.loop.run_until_complete(
+                                asyncio.wait_for(download_task, timeout=timeout_seconds)
+                            )
+                        else:
+                            # No file created - likely stuck at API level
+                            raise asyncio.TimeoutError("Download didn't start - no file created after 2 minutes")
+                except asyncio.TimeoutError as e:
+                    if "Download didn't start" in str(e):
+                        raise  # Re-raise our custom timeout
+                    # Otherwise, it's the full timeout
+                    raise
                 
                 # Stop monitor thread
                 if monitor_thread:
