@@ -163,41 +163,11 @@ class TelegramDownloader:
                     progress_callback=progress_callback
                 )
                 
-                # Check if download starts within initial timeout
-                # Use a shorter timeout first to detect API-level hangs
-                try:
-                    result = self.client.loop.run_until_complete(
-                        asyncio.wait_for(download_task, timeout=initial_timeout)
-                    )
-                except asyncio.TimeoutError:
-                    # Check if file started appearing
-                    if os.path.exists(temp_file_path) and os.path.getsize(temp_file_path) > 0:
-                        # File started downloading, but initial timeout hit
-                        # This is OK - file is growing, just continue monitoring
-                        print(f"\n  ✓ Download in progress... (file is growing, continuing)")
-                        # The download_task is already running, we just need to wait for it
-                        # But we can't await it again, so we'll let the monitor handle it
-                        # Actually, we need to cancel and restart with longer timeout
-                        # For now, just wait a bit and check file size
-                        time.sleep(10)
-                        if os.path.exists(temp_file_path):
-                            # File is growing, let's wait for completion with monitor
-                            # We'll check completion in the monitor
-                            while os.path.exists(temp_file_path):
-                                current_size = os.path.getsize(temp_file_path)
-                                if total_size and current_size >= total_size * 0.99:
-                                    result = temp_file_path
-                                    break
-                                time.sleep(5)
-                            if result and os.path.exists(result):
-                                pass  # Continue to return
-                            else:
-                                raise Exception("Download incomplete after timeout")
-                        else:
-                            raise asyncio.TimeoutError("Download didn't start - no file created after 2 minutes")
-                    else:
-                        # No file created - likely stuck at API level
-                        raise asyncio.TimeoutError(f"Download didn't start - no file created after {initial_timeout}s. This may indicate a network or Telegram server issue.")
+                # Wrap with timeout (use shorter timeout for first attempt to detect hangs)
+                current_timeout = initial_timeout if attempt == 0 else timeout_seconds
+                result = self.client.loop.run_until_complete(
+                    asyncio.wait_for(download_task, timeout=current_timeout)
+                )
                 
                 # Stop monitor thread
                 if monitor_thread:
@@ -220,18 +190,33 @@ class TelegramDownloader:
                     stop_monitor.set()
                     monitor_thread.join(timeout=2)
                 
-                if attempt < max_retries - 1:
-                    current_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
-                    print(f"\n  ⚠ Download timeout after {timeout_seconds}s (attempt {attempt + 1}/{max_retries})")
+                # Check if file exists and has content
+                current_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
+                timeout_used = initial_timeout if attempt == 0 else timeout_seconds
+                
+                if attempt == 0 and current_size == 0:
+                    # First attempt and no file created - likely stuck at API level
+                    print(f"\n  ⚠ Download didn't start after {timeout_used}s - no file created")
+                    print(f"  💡 This may indicate:")
+                    print(f"     - Network connectivity issue")
+                    print(f"     - Telegram server problem")
+                    print(f"     - File too large for current connection")
+                    print(f"  ⏳ Retrying with longer timeout...")
+                    time.sleep(10)
+                    continue
+                elif attempt < max_retries - 1:
+                    print(f"\n  ⚠ Download timeout after {timeout_used}s (attempt {attempt + 1}/{max_retries})")
                     if current_size > 0:
                         print(f"  📊 Downloaded so far: {format_size(current_size)} / {format_size(file_size)}")
+                        print(f"  💡 File was downloading but timed out. Retrying...")
                     print(f"  ⏳ Retrying in 30 seconds...")
                     time.sleep(30)
-                    # Increase timeout for next attempt
-                    timeout_seconds = int(timeout_seconds * 1.5)
+                    # Use full timeout for subsequent attempts
                     continue
                 else:
                     print(f"\n  ✗ Download failed: Timeout after {max_retries} attempts")
+                    if current_size > 0:
+                        print(f"  📊 Partial download: {format_size(current_size)} / {format_size(file_size)}")
                     return None
             except FloodWaitError as e:
                 wait_time = e.seconds
