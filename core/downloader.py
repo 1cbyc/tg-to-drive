@@ -51,7 +51,8 @@ class TelegramDownloader:
         while not os.path.exists(file_path) and wait_count < 12 and not stop_event.is_set():  # Up to 60 seconds
             elapsed = int(time.time() - start_time)
             if wait_count % 2 == 0:  # Every 10 seconds
-                print(f"  ⏳ Waiting for download to start... ({elapsed}s elapsed)", end='\r', flush=True)
+                sys.stdout.write(f"\r  ⏳ Waiting for download to start... ({elapsed}s elapsed)")
+                sys.stdout.flush()
             time.sleep(5)
             wait_count += 1
         
