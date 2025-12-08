@@ -21,21 +21,25 @@ class TelegramDownloader:
     def __init__(self, client: TelegramClient, temp_dir: str):
         self.client = client
         self.temp_dir = temp_dir
+        self._resume_offset = 0  # Track bytes already downloaded for resume
     
     def _progress_callback(self, downloaded_bytes: int, total_bytes: int):
         """Progress callback for download updates."""
         if total_bytes and total_bytes > 0:
-            percent = (downloaded_bytes / total_bytes) * 100
-            downloaded_mb = downloaded_bytes / (1024 * 1024)
+            # Telethon's downloaded_bytes is cumulative and includes existing file when resuming
+            # But to be safe, we'll use the actual value from Telethon
+            total_downloaded = downloaded_bytes  # This should include resume offset if Telethon handles it
+            percent = (total_downloaded / total_bytes) * 100
+            downloaded_mb = total_downloaded / (1024 * 1024)
             total_mb = total_bytes / (1024 * 1024)
             # Show progress with a simple progress bar
             bar_length = 30
-            filled = int(bar_length * downloaded_bytes // total_bytes)
+            filled = int(bar_length * total_downloaded // total_bytes)
             bar = '█' * filled + '░' * (bar_length - filled)
             # Use sys.stdout.write for better control in Colab/Jupyter
             sys.stdout.write(f"\r  📥 [{bar}] {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)")
             sys.stdout.flush()
-            self._last_progress_bytes = downloaded_bytes
+            self._last_progress_bytes = total_downloaded
             self._last_progress_time = time.time()
     
     def _monitor_file_size(self, file_path: str, total_size: int, stop_event: threading.Event):
@@ -123,15 +127,32 @@ class TelegramDownloader:
         if not filename:
             return None
         
+        # Reset resume offset for this download
+        self._resume_offset = 0
+        
         temp_file_path = os.path.join(self.temp_dir, filename)
         
-        # Handle filename conflicts
-        counter = 1
-        original_path = temp_file_path
-        while os.path.exists(temp_file_path):
-            name, ext = os.path.splitext(filename)
-            temp_file_path = os.path.join(self.temp_dir, f"{name}_{counter}{ext}")
-            counter += 1
+        # Check if file exists - if incomplete, we'll resume it
+        # If complete, we shouldn't be here (processor should skip), but handle it anyway
+        if os.path.exists(temp_file_path):
+            existing_size = os.path.getsize(temp_file_path)
+            if file_size and existing_size >= file_size * 0.99:  # 99% complete = done
+                # File is complete, but we're here anyway - might be a different file
+                # Create new filename to avoid conflict
+                counter = 1
+                while os.path.exists(temp_file_path):
+                    name, ext = os.path.splitext(filename)
+                    temp_file_path = os.path.join(self.temp_dir, f"{name}_{counter}{ext}")
+                    counter += 1
+            elif file_size and existing_size > 0:
+                # Partial download exists - we'll resume it
+                percent = (existing_size / file_size * 100) if file_size > 0 else 0
+                print(f"  🔄 Resuming partial download: {format_size(existing_size)} / {format_size(file_size)} ({percent:.1f}%)")
+                # Track the offset for progress display
+                self._resume_offset = existing_size
+            else:
+                # New download
+                self._resume_offset = 0
         
         # Create progress callback for large files (>50MB)
         progress_callback = None
