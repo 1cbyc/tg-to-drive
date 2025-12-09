@@ -174,26 +174,21 @@ class TelegramDownloader:
             )
             monitor_thread.start()
         
-        # Calculate timeout: 10 minutes per GB, minimum 15 minutes, maximum 3 hours
-        # This accounts for slower connections and large files
-        # For 3.91GB at 2 MB/s = ~33 minutes, so 10 min/GB gives ~39 minutes which is reasonable
-        timeout_seconds = max(900, min(10800, int(file_size / (1024**3) * 600))) if file_size else 3600
-        
-        # Download with retry logic
-        # download_media is async, so we need to await it properly
+        # Download with retry logic - NO TIMEOUT
+        # Downloads will run until complete or until stall detection triggers
+        # The monitor thread will detect if download is truly stuck (no progress for 15+ seconds)
         for attempt in range(max_retries):
             try:
-                # Use the event loop to run the async download with timeout
+                # Use the event loop to run the async download (no timeout - let it complete)
                 download_task = self.client.download_media(
                     message, 
                     file=temp_file_path,
                     progress_callback=progress_callback
                 )
                 
-                # Wrap with timeout (use full timeout from start - files can be large)
-                result = self.client.loop.run_until_complete(
-                    asyncio.wait_for(download_task, timeout=timeout_seconds)
-                )
+                # No timeout - let the download complete naturally
+                # Stall detection in monitor thread will catch truly stuck downloads
+                result = self.client.loop.run_until_complete(download_task)
                 
                 # Stop monitor thread
                 if monitor_thread:
@@ -210,34 +205,17 @@ class TelegramDownloader:
                     return temp_file_path
                 return None
                 
-            except asyncio.TimeoutError:
-                # Stop monitor thread
+            except KeyboardInterrupt:
+                # User manually stopped - clean up and return
                 if monitor_thread:
                     stop_monitor.set()
                     monitor_thread.join(timeout=2)
-                
-                # Check if file exists and has content
-                current_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
-                
-                if attempt < max_retries - 1:
-                    print(f"\n  ⚠ Download timeout after {timeout_seconds}s (attempt {attempt + 1}/{max_retries})")
+                print(f"\n  ⚠ Download interrupted by user")
+                if os.path.exists(temp_file_path):
+                    current_size = os.path.getsize(temp_file_path)
                     if current_size > 0:
-                        percent = (current_size / file_size * 100) if file_size > 0 else 0
-                        print(f"  📊 Downloaded so far: {format_size(current_size)} / {format_size(file_size)} ({percent:.1f}%)")
-                        print(f"  💡 File was downloading but timed out. Retrying...")
-                    else:
-                        print(f"  💡 Download didn't start - may indicate network/server issue")
-                    print(f"  ⏳ Retrying in 30 seconds...")
-                    time.sleep(30)
-                    # Increase timeout slightly for next attempt (in case connection is slow)
-                    timeout_seconds = int(timeout_seconds * 1.2)
-                    continue
-                else:
-                    print(f"\n  ✗ Download failed: Timeout after {max_retries} attempts")
-                    if current_size > 0:
-                        percent = (current_size / file_size * 100) if file_size > 0 else 0
-                        print(f"  📊 Partial download: {format_size(current_size)} / {format_size(file_size)} ({percent:.1f}%)")
-                    return None
+                        print(f"  📊 Partial download saved: {format_size(current_size)} / {format_size(file_size)}")
+                return None
             except FloodWaitError as e:
                 wait_time = e.seconds
                 print(f"  ⚠ FloodWait: Waiting {wait_time} seconds before retry...")
