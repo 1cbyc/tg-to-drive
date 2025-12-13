@@ -51,39 +51,6 @@ tg-to-drive/
    - Send `/newbot` and follow instructions
    - Copy the bot token
 
-## Important: Account Requirements
-
-**For Private Channels:**
-
-The account that has **access to the channel** must be the **same account** that created the `API_ID` and `API_HASH`.
-
-- **API_ID & API_HASH**: Must be from the account that has access to the channel
-- **Bot Token**: Can be from any bot (or none if not using bot interface)
-- **Channel Access**: Your user account (via API_ID/API_HASH) must be a member of the channel
-
-**Example:**
-- If Account A has access to the private channel → Use Account A's API_ID/API_HASH
-- The bot token can be from any bot (or you can skip the bot entirely)
-
-## Finding Channel IDs for Private Channels
-
-If you have a private channel without a username, you need its numeric ID:
-
-### Method 1: Use Helper Script (Recommended)
-```bash
-python list_channels.py
-```
-This will list all your channels/groups with their IDs.
-
-### Method 2: Use Telegram Bots
-1. Forward any message from the channel to @userinfobot or @getidsbot
-2. The bot will reply with the channel ID (format: `-1001234567890`)
-3. Use this ID as the channel link (e.g., `-1001234567890`)
-
-### Method 3: Use Channel Username or Invite Link
-- Public channels: Use `@channelname`
-- Private channels: Use invite link or numeric ID
-
 ## Installation
 
 ### For Google Colab
@@ -202,10 +169,10 @@ Bot: Mirror Status
 
 ## Limitations
 
-- Colab Free Tier: ~80GB disk space limit
-- Runtime Disconnections: Colab may disconnect after inactivity
-- File Size: Limited by Colab's disk space and Telegram's file size limits
-- Rate Limits: Telegram may throttle requests (handled automatically)
+- **Colab Free Tier**: ~80GB disk space limit
+- **Runtime Disconnections**: Colab may disconnect after inactivity
+- **File Size**: Limited by Colab's disk space and Telegram's file size limits
+- **Rate Limits**: Telegram may throttle requests (handled automatically)
 
 ## Troubleshooting
 
@@ -224,16 +191,8 @@ The script handles these automatically. If you see many FloodWait messages, the 
 
 ### Files not downloading
 - Verify you have access to the Telegram channel
-- Check that the channel link is correct (include @ symbol or use numeric ID like `-1001234567890`)
+- Check that the channel link is correct (include @ symbol)
 - Ensure the channel has media files
-- For private channels: Make sure you're using API_ID/API_HASH from the account that has access to the channel
-
-### "Could not find the entity" or "UsernameNotOccupiedError"
-This usually means:
-- The channel username is incorrect, or
-- You don't have access to the channel, or
-- For private channels: You need to use the numeric channel ID instead of username
-- Use `python list_channels.py` to find the channel ID
 
 ### Bot not responding
 - Verify `TELEGRAM_BOT_TOKEN` is set correctly
