@@ -144,8 +144,10 @@ class MirrorProcessor:
                     else:
                         target_numeric = target_id_str
                     
+                    channel_count = 0
                     for dialog in dialogs:
                         if dialog.is_channel:
+                            channel_count += 1
                             dialog_entity = dialog.entity
                             dialog_id = dialog_entity.id
                             
@@ -168,6 +170,12 @@ class MirrorProcessor:
                                 print(f"  ✓ Found channel in dialogs: {dialog_entity.title}")
                                 print(f"     Matched ID: {formatted_id}")
                                 break
+                    
+                    if not entity:
+                        print(f"  ⚠ Searched {channel_count} channels but didn't find a match")
+                        print(f"     Target ID: {target_id_str}")
+                        print(f"     Target numeric: {target_numeric}")
+                        print(f"  💡 Make sure you're using the same account that has access to the channel")
                 except Exception as e:
                     print(f"  ⚠ Could not search dialogs: {str(e)}")
                     import traceback
