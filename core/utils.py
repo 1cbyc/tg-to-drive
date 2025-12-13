@@ -3,6 +3,7 @@ Utility functions for the mirror script
 """
 
 import os
+import hashlib
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 
 
@@ -68,14 +69,20 @@ def setup_directories(*paths):
         os.makedirs(path, exist_ok=True)
 
 
-def get_existing_files(drive_folder_path) -> set:
-    """Get a set of existing filenames in the Drive folder for resume capability."""
-    existing_files = set()
+def get_existing_files(drive_folder_path) -> dict:
+    """
+    Get a dict of existing files in the Drive folder for resume capability.
+    
+    Returns:
+        dict: {filename: file_size} mapping for files that exist
+    """
+    existing_files = {}
     if os.path.exists(drive_folder_path):
         for file in os.listdir(drive_folder_path):
             file_path = os.path.join(drive_folder_path, file)
             if os.path.isfile(file_path):
-                existing_files.add(file)
+                file_size = os.path.getsize(file_path)
+                existing_files[file] = file_size
     return existing_files
 
 
@@ -97,4 +104,27 @@ def resolve_filename_conflict(base_path, filename):
         if not os.path.exists(new_path):
             return new_path
         counter += 1
+
+
+def calculate_file_hash(file_path: str, algorithm: str = 'md5') -> str:
+    """
+    Calculate hash of a file for integrity verification.
+    
+    Args:
+        file_path: Path to the file
+        algorithm: Hash algorithm ('md5' or 'sha256')
+        
+    Returns:
+        str: Hexadecimal hash of the file
+    """
+    hash_obj = hashlib.md5() if algorithm == 'md5' else hashlib.sha256()
+    
+    try:
+        with open(file_path, 'rb') as f:
+            # Read file in chunks to handle large files
+            for chunk in iter(lambda: f.read(8192), b''):
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest()
+    except Exception as e:
+        return None
 

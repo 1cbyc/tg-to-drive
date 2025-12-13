@@ -5,6 +5,7 @@ Google Drive uploader module
 import os
 import shutil
 from typing import Optional, Tuple
+from .utils import calculate_file_hash
 
 
 class DriveUploader:
@@ -24,7 +25,6 @@ class DriveUploader:
         Returns:
             tuple: (success: bool, final_path: Optional[str])
         """
-        from typing import Tuple
         # Handle filename conflicts in Drive
         drive_file_path = os.path.join(self.drive_folder_path, filename)
         counter = 1
@@ -35,11 +35,38 @@ class DriveUploader:
             counter += 1
         
         try:
+            # Calculate hash before move for integrity verification
+            source_hash = calculate_file_hash(temp_file_path, 'md5')
+            source_size = os.path.getsize(temp_file_path)
+            
             # Move the file
             shutil.move(temp_file_path, drive_file_path)
             
-            # Verify the move was successful
-            if os.path.exists(drive_file_path) and os.path.getsize(drive_file_path) > 0:
+            # Verify the move was successful and file integrity
+            if os.path.exists(drive_file_path):
+                dest_size = os.path.getsize(drive_file_path)
+                
+                # Check size matches
+                if dest_size != source_size:
+                    print(f"  ✗ Verification failed: Size mismatch (source: {source_size}, dest: {dest_size})")
+                    # Try to clean up
+                    try:
+                        os.remove(drive_file_path)
+                    except:
+                        pass
+                    return False, None
+                
+                # Verify file integrity with hash (for files < 100MB to avoid long delays)
+                if source_size < 100 * 1024 * 1024 and source_hash:
+                    dest_hash = calculate_file_hash(drive_file_path, 'md5')
+                    if dest_hash != source_hash:
+                        print(f"  ✗ Verification failed: File integrity check failed (hash mismatch)")
+                        try:
+                            os.remove(drive_file_path)
+                        except:
+                            pass
+                        return False, None
+                
                 # Ensure temp file is deleted
                 if os.path.exists(temp_file_path):
                     try:
@@ -48,7 +75,7 @@ class DriveUploader:
                         pass
                 return True, drive_file_path
             else:
-                print(f"  ✗ Verification failed: File not found or empty in Drive")
+                print(f"  ✗ Verification failed: File not found in Drive after move")
                 return False, None
         except Exception as e:
             print(f"  ✗ Move failed: {str(e)}")

@@ -84,13 +84,10 @@ def main():
     if not get_user_inputs(config):
         return
     
-    # Validate inputs
-    if not config.api_id or not config.api_hash:
-        print("✗ Error: API_ID and API_HASH are required")
-        return
-    
-    if not config.channel_link:
-        print("✗ Error: Channel link is required")
+    # Validate configuration
+    is_valid, error_msg = config.validate()
+    if not is_valid:
+        print(f"✗ Error: {error_msg}")
         return
     
     # Create processor and run

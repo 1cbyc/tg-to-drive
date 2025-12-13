@@ -32,6 +32,38 @@ class Config:
         self.bot_token: Optional[str] = os.getenv('TELEGRAM_BOT_TOKEN')
         self.bot_enabled: bool = bool(self.bot_token)
         self.user_id: Optional[int] = None
+    
+    def validate(self):
+        """
+        Validate configuration settings.
+        
+        Returns:
+            tuple: (is_valid: bool, error_message: Optional[str])
+        """
+        if not self.api_id or not self.api_hash:
+            return False, "API_ID and API_HASH are required"
+        
+        if not self.channel_link:
+            return False, "Channel link is required"
+        
+        # Validate paths exist and are writable (if not in Colab)
+        if not self.is_colab:
+            # Check temp directory
+            temp_dir = os.path.dirname(self.temp_download_dir) or self.temp_download_dir
+            if not os.path.exists(temp_dir):
+                try:
+                    os.makedirs(temp_dir, exist_ok=True)
+                except Exception as e:
+                    return False, f"Cannot create temp directory: {str(e)}"
+            
+            # Check drive base path
+            if not os.path.exists(self.drive_base_path):
+                return False, f"Drive base path does not exist: {self.drive_base_path}"
+            
+            if not os.access(self.drive_base_path, os.W_OK):
+                return False, f"Drive base path is not writable: {self.drive_base_path}"
+        
+        return True, None
         
     def load_from_env(self):
         """Load configuration from environment variables."""
@@ -63,8 +95,22 @@ class Config:
         return os.path.join(self.drive_base_path, self.folder_name)
     
     def get_session_file(self) -> str:
-        """Get the path to the Telegram session file."""
-        return os.path.join(self.temp_download_dir, 'telegram_session')
+        """
+        Get the path to the Telegram session file.
+        Uses a persistent location (home directory or current directory) instead of temp.
+        """
+        if self.is_colab:
+            # In Colab, use /content (persists across restarts if runtime is kept)
+            session_dir = '/content'
+        else:
+            # On local machine, use home directory
+            session_dir = os.path.expanduser('~')
+        
+        # Create .tg_mirror directory for session files
+        session_dir = os.path.join(session_dir, '.tg_mirror')
+        os.makedirs(session_dir, exist_ok=True)
+        
+        return os.path.join(session_dir, 'telegram_session')
     
     def mount_drive(self) -> bool:
         """Check if Google Drive is mounted (should be mounted in Colab notebook cell)."""
@@ -80,6 +126,13 @@ class Config:
                 print("  drive.mount('/content/drive')")
                 return False
         else:
-            print("⚠ Not running in Colab - assuming Drive is already accessible")
+            # Validate that drive path exists and is writable
+            if not os.path.exists(self.drive_base_path):
+                print(f"✗ Drive path does not exist: {self.drive_base_path}")
+                return False
+            if not os.access(self.drive_base_path, os.W_OK):
+                print(f"✗ Drive path is not writable: {self.drive_base_path}")
+                return False
+            print("✓ Drive path is accessible")
             return True
 

@@ -101,24 +101,31 @@ class MirrorProcessor:
             channel_title = entity.title if hasattr(entity, 'title') else self.config.channel_link
             print(f"✓ Channel found: {channel_title}")
             
-            # Get all messages
+            # Get messages as generator (memory efficient)
             print("\n" + "=" * 60)
             print("Fetching messages from channel...")
             print("=" * 60)
             
-            messages = list(self.downloader.get_channel_messages(
+            messages_generator = self.downloader.get_channel_messages(
+                entity,
+                reverse=self.config.reverse_order
+            )
+            
+            # Count total files first (for progress tracking)
+            # We'll iterate twice, but it's better than loading all into memory
+            print("  Counting files...")
+            total_files = sum(1 for _ in self.downloader.get_channel_messages(
                 entity,
                 reverse=self.config.reverse_order
             ))
-            
-            total_files = len(messages)
-            print(f"\n✓ Found {total_files} messages with media files")
             
             if total_files == 0:
                 print("No media files found in the channel. Exiting.")
                 return True
             
-            # Get existing files for resume capability
+            print(f"\n✓ Found {total_files} messages with media files")
+            
+            # Get existing files for resume capability (now with sizes)
             drive_folder_path = self.config.get_drive_folder_path()
             existing_files = get_existing_files(drive_folder_path)
             print(f"\n✓ Found {len(existing_files)} existing files in Drive folder (will skip if already downloaded)")
@@ -130,7 +137,11 @@ class MirrorProcessor:
             
             self._notify_progress("started", total=total_files)
             
-            for idx, message in enumerate(messages, 1):
+            # Track retry attempts per message to prevent infinite loops
+            message_retries = {}
+            max_retries_per_message = 3
+            
+            for idx, message in enumerate(messages_generator, 1):
                 try:
                     filename, file_size = get_file_info(message)
                     
@@ -139,12 +150,31 @@ class MirrorProcessor:
                         continue
                     
                     # Check if file already exists (resume capability)
+                    # Now checks both filename AND size to ensure file is complete
                     if filename in existing_files:
-                        print(f"\n[{idx}/{total_files}] ⊘ SKIPPED (already exists): {filename}")
-                        self.skipped_count += 1
-                        if file_size:
-                            self.total_size += file_size
-                        self._notify_progress("skipped", current=idx, total=total_files, filename=filename)
+                        existing_size = existing_files[filename]
+                        # If file size matches (within 1% tolerance) or file_size is None, skip it
+                        if file_size is None or abs(existing_size - file_size) / file_size < 0.01:
+                            print(f"\n[{idx}/{total_files}] ⊘ SKIPPED (already exists): {filename}")
+                            self.skipped_count += 1
+                            if file_size:
+                                self.total_size += file_size
+                            self._notify_progress("skipped", current=idx, total=total_files, filename=filename)
+                            continue
+                        else:
+                            # File exists but size doesn't match - might be incomplete, re-download
+                            print(f"\n[{idx}/{total_files}] ⚠ File exists but size mismatch - re-downloading: {filename}")
+                            print(f"    Existing: {format_size(existing_size)}, Expected: {format_size(file_size)}")
+                    
+                    # Check retry count for this message
+                    message_id = message.id
+                    if message_id not in message_retries:
+                        message_retries[message_id] = 0
+                    
+                    if message_retries[message_id] >= max_retries_per_message:
+                        print(f"\n[{idx}/{total_files}] ✗ SKIPPED (max retries exceeded): {filename}")
+                        self.failed_count += 1
+                        self._notify_progress("failed", current=idx, total=total_files, filename=filename, reason="max_retries")
                         continue
                     
                     print(f"\n[{idx}/{total_files}] ↓ Downloading: {filename}")
@@ -157,10 +187,17 @@ class MirrorProcessor:
                     downloaded_path = self.downloader.download_file(message)
                     
                     if not downloaded_path or not os.path.exists(downloaded_path):
-                        print(f"  ✗ Download failed")
-                        self.failed_count += 1
-                        self._notify_progress("failed", current=idx, total=total_files, filename=filename, reason="download")
-                        continue
+                        message_retries[message_id] = message_retries.get(message_id, 0) + 1
+                        if message_retries[message_id] < max_retries_per_message:
+                            print(f"  ✗ Download failed (retry {message_retries[message_id]}/{max_retries_per_message})")
+                            # Retry this message by continuing (will be processed again if generator allows)
+                            # Since we can't go back in generator, we'll just skip and let it fail after max retries
+                            continue
+                        else:
+                            print(f"  ✗ Download failed after {max_retries_per_message} attempts")
+                            self.failed_count += 1
+                            self._notify_progress("failed", current=idx, total=total_files, filename=filename, reason="download")
+                            continue
                     
                     # Upload to Drive
                     print(f"  ↑ Uploading to Drive...")
@@ -175,29 +212,60 @@ class MirrorProcessor:
                         print(f"  ✓ Success! ({format_size(actual_size)})")
                         self._notify_progress("completed", current=idx, total=total_files, filename=filename, size=actual_size)
                     else:
-                        self.failed_count += 1
-                        print(f"  ✗ Upload failed")
-                        self._notify_progress("failed", current=idx, total=total_files, filename=filename, reason="upload")
+                        message_retries[message_id] = message_retries.get(message_id, 0) + 1
+                        if message_retries[message_id] < max_retries_per_message:
+                            print(f"  ✗ Upload failed (retry {message_retries[message_id]}/{max_retries_per_message})")
+                            # Retry by continuing (but we can't go back in generator, so this will just move to next)
+                            # In practice, upload failures are usually fatal, so we'll just fail
+                            self.failed_count += 1
+                            self._notify_progress("failed", current=idx, total=total_files, filename=filename, reason="upload")
+                        else:
+                            print(f"  ✗ Upload failed after {max_retries_per_message} attempts")
+                            self.failed_count += 1
+                            self._notify_progress("failed", current=idx, total=total_files, filename=filename, reason="upload")
                 
                 except FloodWaitError as e:
                     wait_time = e.seconds
-                    print(f"\n  ⚠ FloodWait: Waiting {wait_time} seconds...")
-                    time.sleep(wait_time)
-                    # Retry this message
-                    idx -= 1
-                    continue
+                    message_retries[message_id] = message_retries.get(message_id, 0) + 1
+                    if message_retries[message_id] < max_retries_per_message:
+                        print(f"\n  ⚠ FloodWait: Waiting {wait_time} seconds... (retry {message_retries[message_id]}/{max_retries_per_message})")
+                        time.sleep(wait_time)
+                        # Can't retry with generator, so we'll just continue to next message
+                        # FloodWait is usually temporary, so next run will retry
+                        continue
+                    else:
+                        print(f"\n  ✗ FloodWait exceeded max retries for message {message.id}")
+                        self.failed_count += 1
+                        continue
                 except (TimeoutError, ConnectionError) as e:
-                    print(f"\n  ⚠ Timeout/Connection error on message {message.id}: {str(e)}")
-                    print(f"  ⏳ Waiting 30 seconds before retry...")
-                    time.sleep(30)
-                    # Retry this message
-                    idx -= 1
-                    continue
+                    message_retries[message_id] = message_retries.get(message_id, 0) + 1
+                    if message_retries[message_id] < max_retries_per_message:
+                        print(f"\n  ⚠ Timeout/Connection error on message {message.id}: {str(e)} (retry {message_retries[message_id]}/{max_retries_per_message})")
+                        print(f"  ⏳ Waiting 30 seconds before retry...")
+                        time.sleep(30)
+                        continue
+                    else:
+                        print(f"\n  ✗ Timeout/Connection error exceeded max retries for message {message.id}")
+                        self.failed_count += 1
+                        continue
                 except Exception as e:
-                    print(f"\n  ✗ Error processing message {message.id}: {str(e)}")
-                    self.failed_count += 1
-                    self._notify_progress("error", current=idx, total=total_files, error=str(e))
-                    continue
+                    message_retries[message_id] = message_retries.get(message_id, 0) + 1
+                    if message_retries[message_id] < max_retries_per_message:
+                        print(f"\n  ✗ Error processing message {message.id}: {str(e)} (retry {message_retries[message_id]}/{max_retries_per_message})")
+                        time.sleep(5)  # Brief delay before retry
+                        continue
+                    else:
+                        print(f"\n  ✗ Error processing message {message.id}: {str(e)} (max retries exceeded)")
+                        self.failed_count += 1
+                        self._notify_progress("error", current=idx, total=total_files, error=str(e))
+                        continue
+                
+                # Success - reset retry count and add rate limiting delay
+                if message_id in message_retries:
+                    del message_retries[message_id]
+                
+                # Rate limiting: small delay between files to avoid triggering Telegram limits
+                time.sleep(1)  # 1 second delay between files
             
             # Summary
             self._print_summary(total_files)

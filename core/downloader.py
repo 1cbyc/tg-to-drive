@@ -24,11 +24,14 @@ class TelegramDownloader:
         self._resume_offset = 0  # Track bytes already downloaded for resume
     
     def _progress_callback(self, downloaded_bytes: int, total_bytes: int):
-        """Progress callback for download updates."""
+        """
+        Progress callback for download updates.
+        Note: When resuming, Telethon's downloaded_bytes is relative to the resume point,
+        so we add _resume_offset to get the total downloaded bytes.
+        """
         if total_bytes and total_bytes > 0:
-            # Telethon's downloaded_bytes is cumulative and includes existing file when resuming
-            # But to be safe, we'll use the actual value from Telethon
-            total_downloaded = downloaded_bytes  # This should include resume offset if Telethon handles it
+            # Add resume offset to get total downloaded (Telethon's callback is relative to resume point)
+            total_downloaded = self._resume_offset + downloaded_bytes
             percent = (total_downloaded / total_bytes) * 100
             downloaded_mb = total_downloaded / (1024 * 1024)
             total_mb = total_bytes / (1024 * 1024)
@@ -37,8 +40,10 @@ class TelegramDownloader:
             filled = int(bar_length * total_downloaded // total_bytes)
             bar = '█' * filled + '░' * (bar_length - filled)
             # Use sys.stdout.write for better control in Colab/Jupyter
-            sys.stdout.write(f"\r  📥 [{bar}] {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)")
-            sys.stdout.flush()
+            # Only show if monitor thread isn't active (to avoid conflicts)
+            if not hasattr(self, '_monitor_active') or not self._monitor_active:
+                sys.stdout.write(f"\r  📥 [{bar}] {percent:.1f}% ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)")
+                sys.stdout.flush()
             self._last_progress_bytes = total_downloaded
             self._last_progress_time = time.time()
     
@@ -137,13 +142,18 @@ class TelegramDownloader:
         if os.path.exists(temp_file_path):
             existing_size = os.path.getsize(temp_file_path)
             if file_size and existing_size >= file_size * 0.99:  # 99% complete = done
-                # File is complete, but we're here anyway - might be a different file
-                # Create new filename to avoid conflict
-                counter = 1
-                while os.path.exists(temp_file_path):
-                    name, ext = os.path.splitext(filename)
-                    temp_file_path = os.path.join(self.temp_dir, f"{name}_{counter}{ext}")
-                    counter += 1
+                # File is complete - this shouldn't happen (processor should skip), but handle it
+                # Delete the complete file and start fresh to avoid any issues
+                try:
+                    os.remove(temp_file_path)
+                    print(f"  ℹ Complete file found in temp - removing to start fresh")
+                except:
+                    # If delete fails, create new filename to avoid conflict
+                    counter = 1
+                    while os.path.exists(temp_file_path):
+                        name, ext = os.path.splitext(filename)
+                        temp_file_path = os.path.join(self.temp_dir, f"{name}_{counter}{ext}")
+                        counter += 1
             elif file_size and existing_size > 0:
                 # Partial download exists - we'll resume it
                 percent = (existing_size / file_size * 100) if file_size > 0 else 0
@@ -162,17 +172,24 @@ class TelegramDownloader:
         if file_size and file_size > 50 * 1024 * 1024:  # > 50MB
             print(f"  ⏳ Starting download... (this may take a while for large files)")
             print(f"  📊 Monitoring progress (updates every 5 seconds)...")
-            progress_callback = self._progress_callback
+            # Use monitor thread as primary (more reliable), callback as backup
+            # Set flag to coordinate output
+            self._monitor_active = True
+            progress_callback = self._progress_callback  # Keep for Telethon, but monitor will show progress
             self._last_progress_bytes = 0
             self._last_progress_time = time.time()
             
-            # Start file size monitor as backup (will show progress even if callback fails)
+            # Start file size monitor as primary progress display
             monitor_thread = threading.Thread(
                 target=self._monitor_file_size,
                 args=(temp_file_path, file_size, stop_monitor),
                 daemon=True
             )
             monitor_thread.start()
+        else:
+            # For smaller files, use callback only
+            self._monitor_active = False
+            progress_callback = self._progress_callback
         
         # Download with retry logic - NO TIMEOUT
         # Downloads will run until complete or until stall detection triggers
