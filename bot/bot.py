@@ -10,7 +10,6 @@ from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 
 from core.config import Config
 from core.processor import MirrorProcessor
-from core.utils import clean_channel_link
 
 
 class MirrorBot:
@@ -77,7 +76,12 @@ class MirrorBot:
             channel = self.config.channel_link
             
             if len(command_parts) > 1:
-                channel = clean_channel_link(command_parts[1].strip())
+                channel = command_parts[1].strip()
+                # Clean channel link
+                if channel.startswith('https://t.me/'):
+                    channel = '@' + channel.split('/')[-1]
+                elif not channel.startswith('@'):
+                    channel = '@' + channel
             
             if not channel:
                 await message.reply_text(
