@@ -12,12 +12,6 @@ try:
 except ImportError:
     IS_COLAB = False
 
-# Import clean_channel_link - use lazy import to avoid circular dependency
-def _clean_channel_link(channel_link: str) -> str:
-    """Lazy import to avoid circular dependency."""
-    from .utils import clean_channel_link
-    return clean_channel_link(channel_link)
-
 
 class Config:
     """Configuration class for managing settings."""
@@ -49,9 +43,7 @@ class Config:
                 pass
         
         self.api_hash = os.getenv('TELEGRAM_API_HASH')
-        channel_link = os.getenv('TELEGRAM_CHANNEL')
-        if channel_link:
-            self.channel_link = _clean_channel_link(channel_link)
+        self.channel_link = os.getenv('TELEGRAM_CHANNEL')
         self.folder_name = os.getenv('DRIVE_TARGET_FOLDER', 'Telegram_Mirror')
         
         reverse = os.getenv('DOWNLOAD_REVERSE', 'false').lower()
