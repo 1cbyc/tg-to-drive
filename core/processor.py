@@ -94,104 +94,10 @@ class MirrorProcessor:
         try:
             # Verify channel access
             print(f"\n✓ Connected! Accessing channel: {self.config.channel_link}")
-            
-            # Try to get entity - handle numeric IDs specially
-            channel_link = self.config.channel_link
-            entity = None
-            
-            # If it's a numeric ID, try converting to int first
-            if channel_link.startswith('-') and channel_link.lstrip('-').isdigit():
-                try:
-                    # Try as integer
-                    channel_id = int(channel_link)
-                    entity = self.client.loop.run_until_complete(
-                        self.client.get_entity(channel_id)
-                    )
-                except Exception as e:
-                    # If that fails, try as string
-                    print(f"  ⚠ Integer lookup failed: {str(e)}, trying as string...")
-                    try:
-                        entity = self.client.loop.run_until_complete(
-                            self.client.get_entity(channel_link)
-                        )
-                    except Exception as e2:
-                        print(f"  ⚠ String lookup also failed: {str(e2)}")
-                        entity = None
-            else:
-                # For usernames, use as-is
-                try:
-                    entity = self.client.loop.run_until_complete(
-                        self.client.get_entity(channel_link)
-                    )
-                except Exception as e:
-                    print(f"  ⚠ Username lookup failed: {str(e)}")
-                    entity = None
-            
-            # If still not found, try searching through dialogs
-            if not entity:
-                print("  ⚠ Channel not found directly, searching through your dialogs...")
-                try:
-                    dialogs = self.client.loop.run_until_complete(self.client.get_dialogs())
-                    print(f"  📋 Searching through {len(dialogs)} dialogs...")
-                    
-                    # Normalize the target channel_link for comparison
-                    target_id_str = channel_link.strip()
-                    # Extract numeric part (remove -100 prefix if present)
-                    if target_id_str.startswith('-100'):
-                        target_numeric = target_id_str[4:]  # Remove '-100'
-                    elif target_id_str.startswith('-'):
-                        target_numeric = target_id_str[1:]  # Remove '-'
-                    else:
-                        target_numeric = target_id_str
-                    
-                    channel_count = 0
-                    for dialog in dialogs:
-                        if dialog.is_channel:
-                            channel_count += 1
-                            dialog_entity = dialog.entity
-                            dialog_id = dialog_entity.id
-                            
-                            # Format the dialog ID the same way list_channels.py does
-                            # Channel IDs: entity.id is positive, we format as -100{id}
-                            if dialog_id > 0:
-                                formatted_id = f"-100{dialog_id}"
-                            else:
-                                formatted_id = str(dialog_id)
-                            
-                            # Also try just the numeric part
-                            dialog_numeric = str(abs(dialog_id))
-                            
-                            # Check multiple formats
-                            if (formatted_id == target_id_str or
-                                str(dialog_id) == target_id_str or
-                                dialog_numeric == target_numeric or
-                                f"-100{dialog_numeric}" == target_id_str):
-                                entity = dialog_entity
-                                print(f"  ✓ Found channel in dialogs: {dialog_entity.title}")
-                                print(f"     Matched ID: {formatted_id}")
-                                break
-                    
-                    if not entity:
-                        print(f"  ⚠ Searched {channel_count} channels but didn't find a match")
-                        print(f"     Target ID: {target_id_str}")
-                        print(f"     Target numeric: {target_numeric}")
-                        print(f"  💡 Make sure you're using the same account that has access to the channel")
-                except Exception as e:
-                    print(f"  ⚠ Could not search dialogs: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-            
-            if not entity:
-                error_msg = (
-                    f"\n✗ Cannot find channel: {channel_link}\n"
-                    f"  Possible reasons:\n"
-                    f"  1. You don't have access to this channel\n"
-                    f"  2. The channel ID is incorrect\n"
-                    f"  3. The channel was deleted\n\n"
-                    f"  💡 Try running 'python list_channels.py' to see all channels you have access to."
-                )
-                raise ValueError(error_msg)
-            
+            # get_entity is async, so we need to await it properly
+            entity = self.client.loop.run_until_complete(
+                self.client.get_entity(self.config.channel_link)
+            )
             channel_title = entity.title if hasattr(entity, 'title') else self.config.channel_link
             print(f"✓ Channel found: {channel_title}")
             
@@ -331,14 +237,6 @@ class MirrorProcessor:
             print("\n✓ Cleanup complete")
         
         if self.client:
-            try:
-                self.client.disconnect()
-                print("✓ Disconnected from Telegram")
-            except Exception as e:
-                # Ignore errors during disconnect (e.g., corrupted session file)
-                # These are non-critical and don't affect the actual mirroring
-                if "disk I/O error" in str(e).lower() or "sqlite" in str(e).lower():
-                    print("⚠ Session file cleanup warning (non-critical): " + str(e))
-                else:
-                    print(f"⚠ Disconnect warning: {str(e)}")
+            self.client.disconnect()
+            print("✓ Disconnected from Telegram")
 
