@@ -26,6 +26,7 @@ except ImportError:
 
 from core.config import Config
 from core.processor import MirrorProcessor
+from core.utils import clean_channel_link
 
 
 def get_user_inputs(config: Config):
@@ -56,13 +57,8 @@ def get_user_inputs(config: Config):
         config.api_hash = input("Enter your API_HASH: ").strip()
     
     if not config.channel_link:
-        channel_link = input("Enter the Telegram Channel Link (e.g., @channelname or https://t.me/channelname): ").strip()
-        # Clean channel link
-        if channel_link.startswith('https://t.me/'):
-            channel_link = '@' + channel_link.split('/')[-1]
-        elif not channel_link.startswith('@'):
-            channel_link = '@' + channel_link
-        config.channel_link = channel_link
+        channel_link = input("Enter the Telegram Channel Link (e.g., @channelname, https://t.me/channelname, or -1001234567890 for numeric ID): ").strip()
+        config.channel_link = clean_channel_link(channel_link)
     
     if not config.folder_name:
         folder_name = input("Enter the target folder name in Google Drive (will be created if it doesn't exist): ").strip()
