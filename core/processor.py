@@ -94,10 +94,67 @@ class MirrorProcessor:
         try:
             # Verify channel access
             print(f"\n✓ Connected! Accessing channel: {self.config.channel_link}")
-            # get_entity is async, so we need to await it properly
-            entity = self.client.loop.run_until_complete(
-                self.client.get_entity(self.config.channel_link)
-            )
+            
+            # Try to get entity - handle numeric IDs specially
+            channel_link = self.config.channel_link
+            entity = None
+            
+            # If it's a numeric ID, try converting to int first
+            if channel_link.startswith('-') and channel_link.lstrip('-').isdigit():
+                try:
+                    # Try as integer
+                    channel_id = int(channel_link)
+                    entity = self.client.loop.run_until_complete(
+                        self.client.get_entity(channel_id)
+                    )
+                except Exception as e:
+                    # If that fails, try as string
+                    print(f"  ⚠ Integer lookup failed: {str(e)}, trying as string...")
+                    try:
+                        entity = self.client.loop.run_until_complete(
+                            self.client.get_entity(channel_link)
+                        )
+                    except Exception as e2:
+                        print(f"  ⚠ String lookup also failed: {str(e2)}")
+                        entity = None
+            else:
+                # For usernames, use as-is
+                try:
+                    entity = self.client.loop.run_until_complete(
+                        self.client.get_entity(channel_link)
+                    )
+                except Exception as e:
+                    print(f"  ⚠ Username lookup failed: {str(e)}")
+                    entity = None
+            
+            # If still not found, try searching through dialogs
+            if not entity:
+                print("  ⚠ Channel not found directly, searching through your dialogs...")
+                try:
+                    dialogs = self.client.loop.run_until_complete(self.client.get_dialogs())
+                    for dialog in dialogs:
+                        if dialog.is_channel:
+                            dialog_id = dialog.entity.id
+                            # Format: -100 + id
+                            full_id = f"-100{dialog_id}" if dialog_id > 0 else str(dialog_id)
+                            if full_id == channel_link or str(dialog_id) == channel_link:
+                                entity = dialog.entity
+                                print(f"  ✓ Found channel in dialogs: {dialog.entity.title}")
+                                break
+                except Exception as e:
+                    print(f"  ⚠ Could not search dialogs: {str(e)}")
+            
+            if not entity:
+                error_msg = (
+                    f"\n✗ Cannot find channel: {channel_link}\n"
+                    f"  Possible reasons:\n"
+                    f"  1. You don't have access to this channel\n"
+                    f"  2. The channel ID is incorrect\n"
+                    f"  3. The channel was deleted\n\n"
+                    f"  💡 Try running 'python list_channels.py' to see all channels you have access to."
+                )
+                raise ValueError(error_msg)
+            
             channel_title = entity.title if hasattr(entity, 'title') else self.config.channel_link
             print(f"✓ Channel found: {channel_title}")
             
@@ -237,6 +294,14 @@ class MirrorProcessor:
             print("\n✓ Cleanup complete")
         
         if self.client:
-            self.client.disconnect()
-            print("✓ Disconnected from Telegram")
+            try:
+                self.client.disconnect()
+                print("✓ Disconnected from Telegram")
+            except Exception as e:
+                # Ignore errors during disconnect (e.g., corrupted session file)
+                # These are non-critical and don't affect the actual mirroring
+                if "disk I/O error" in str(e).lower() or "sqlite" in str(e).lower():
+                    print("⚠ Session file cleanup warning (non-critical): " + str(e))
+                else:
+                    print(f"⚠ Disconnect warning: {str(e)}")
 
