@@ -57,9 +57,9 @@ tg-to-drive/
 
 The account that has **access to the channel** must be the **same account** that created the `API_ID` and `API_HASH`.
 
-- ✅ **API_ID & API_HASH**: Must be from the account that has access to the channel
-- ✅ **Bot Token**: Can be from any bot (or none if not using bot interface)
-- ✅ **Channel Access**: Your user account (via API_ID/API_HASH) must be a member of the channel
+- **API_ID & API_HASH**: Must be from the account that has access to the channel
+- **Bot Token**: Can be from any bot (or none if not using bot interface)
+- **Channel Access**: Your user account (via API_ID/API_HASH) must be a member of the channel
 
 **Example:**
 - If Account A has access to the private channel → Use Account A's API_ID/API_HASH
@@ -202,10 +202,10 @@ Bot: Mirror Status
 
 ## Limitations
 
-- **Colab Free Tier**: ~80GB disk space limit
-- **Runtime Disconnections**: Colab may disconnect after inactivity
-- **File Size**: Limited by Colab's disk space and Telegram's file size limits
-- **Rate Limits**: Telegram may throttle requests (handled automatically)
+- Colab Free Tier: ~80GB disk space limit
+- Runtime Disconnections: Colab may disconnect after inactivity
+- File Size: Limited by Colab's disk space and Telegram's file size limits
+- Rate Limits: Telegram may throttle requests (handled automatically)
 
 ## Troubleshooting
 
