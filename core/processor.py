@@ -132,26 +132,41 @@ class MirrorProcessor:
                 print("  ⚠ Channel not found directly, searching through your dialogs...")
                 try:
                     dialogs = self.client.loop.run_until_complete(self.client.get_dialogs())
+                    print(f"  📋 Searching through {len(dialogs)} dialogs...")
+                    
+                    # Normalize the target channel_link for comparison
+                    target_id_str = channel_link.strip()
+                    # Extract numeric part (remove -100 prefix if present)
+                    if target_id_str.startswith('-100'):
+                        target_numeric = target_id_str[4:]  # Remove '-100'
+                    elif target_id_str.startswith('-'):
+                        target_numeric = target_id_str[1:]  # Remove '-'
+                    else:
+                        target_numeric = target_id_str
+                    
                     for dialog in dialogs:
                         if dialog.is_channel:
                             dialog_entity = dialog.entity
                             dialog_id = dialog_entity.id
                             
-                            # Try multiple ID formats for matching
-                            # Format 1: -100 + id (standard channel format)
-                            full_id_1 = f"-100{dialog_id}" if dialog_id > 0 else str(dialog_id)
-                            # Format 2: Just the id (if it's already negative)
-                            full_id_2 = str(dialog_id)
-                            # Format 3: Without -100 prefix
-                            id_without_prefix = str(dialog_id).lstrip('-').lstrip('100')
+                            # Format the dialog ID the same way list_channels.py does
+                            # Channel IDs: entity.id is positive, we format as -100{id}
+                            if dialog_id > 0:
+                                formatted_id = f"-100{dialog_id}"
+                            else:
+                                formatted_id = str(dialog_id)
                             
-                            # Check if any format matches
-                            if (full_id_1 == channel_link or 
-                                full_id_2 == channel_link or 
-                                id_without_prefix == channel_link.lstrip('-').lstrip('100') or
-                                str(dialog_id) == channel_link):
+                            # Also try just the numeric part
+                            dialog_numeric = str(abs(dialog_id))
+                            
+                            # Check multiple formats
+                            if (formatted_id == target_id_str or
+                                str(dialog_id) == target_id_str or
+                                dialog_numeric == target_numeric or
+                                f"-100{dialog_numeric}" == target_id_str):
                                 entity = dialog_entity
                                 print(f"  ✓ Found channel in dialogs: {dialog_entity.title}")
+                                print(f"     Matched ID: {formatted_id}")
                                 break
                 except Exception as e:
                     print(f"  ⚠ Could not search dialogs: {str(e)}")
