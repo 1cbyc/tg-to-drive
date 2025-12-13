@@ -137,7 +137,9 @@ def main():
                 
                 print(f"  Title: {title}")
                 print(f"  ID: {full_id}")
-                print(f"  Access Hash: {entity.access_hash}")
+                # Groups (Chat) don't have access_hash, only channels do
+                if hasattr(entity, 'access_hash'):
+                    print(f"  Access Hash: {entity.access_hash}")
                 print()
         
         print("=" * 60)

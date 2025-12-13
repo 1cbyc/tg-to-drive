@@ -134,15 +134,29 @@ class MirrorProcessor:
                     dialogs = self.client.loop.run_until_complete(self.client.get_dialogs())
                     for dialog in dialogs:
                         if dialog.is_channel:
-                            dialog_id = dialog.entity.id
-                            # Format: -100 + id
-                            full_id = f"-100{dialog_id}" if dialog_id > 0 else str(dialog_id)
-                            if full_id == channel_link or str(dialog_id) == channel_link:
-                                entity = dialog.entity
-                                print(f"  ✓ Found channel in dialogs: {dialog.entity.title}")
+                            dialog_entity = dialog.entity
+                            dialog_id = dialog_entity.id
+                            
+                            # Try multiple ID formats for matching
+                            # Format 1: -100 + id (standard channel format)
+                            full_id_1 = f"-100{dialog_id}" if dialog_id > 0 else str(dialog_id)
+                            # Format 2: Just the id (if it's already negative)
+                            full_id_2 = str(dialog_id)
+                            # Format 3: Without -100 prefix
+                            id_without_prefix = str(dialog_id).lstrip('-').lstrip('100')
+                            
+                            # Check if any format matches
+                            if (full_id_1 == channel_link or 
+                                full_id_2 == channel_link or 
+                                id_without_prefix == channel_link.lstrip('-').lstrip('100') or
+                                str(dialog_id) == channel_link):
+                                entity = dialog_entity
+                                print(f"  ✓ Found channel in dialogs: {dialog_entity.title}")
                                 break
                 except Exception as e:
                     print(f"  ⚠ Could not search dialogs: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
             
             if not entity:
                 error_msg = (
