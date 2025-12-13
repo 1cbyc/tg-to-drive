@@ -25,6 +25,9 @@ except ImportError:
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 
+# IMPORTANT: This script MUST use USER credentials, not BOT token
+# Make sure TELEGRAM_BOT_TOKEN is NOT being used
+
 def main():
     """List all channels and groups with their IDs."""
     print("=" * 60)
@@ -46,14 +49,40 @@ def main():
     if not api_hash:
         api_hash = input("Enter your API_HASH: ").strip()
     
-    # Initialize client
+    # Check if bot token is set (should NOT be used for this script)
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if bot_token:
+        print("\n⚠ WARNING: TELEGRAM_BOT_TOKEN is set in environment.")
+        print("   This script requires USER credentials (API_ID/API_HASH), not bot token.")
+        print("   Please unset TELEGRAM_BOT_TOKEN or use a different session file.")
+        print("   The script will continue, but make sure you're using user credentials.\n")
+    
+    # Initialize client with a unique session name to avoid conflicts
+    # Use user credentials only (no bot token)
+    session_name = 'channel_finder_session'
+    
+    # Remove old session file if it exists (might be corrupted or bot-based)
+    session_file = f'{session_name}.session'
+    if os.path.exists(session_file):
+        print(f"⚠ Found existing session file: {session_file}")
+        print("   Removing it to ensure fresh user authentication...")
+        try:
+            os.remove(session_file)
+        except Exception as e:
+            print(f"   Could not remove: {e}")
+    
     print("\n" + "=" * 60)
     print("Connecting to Telegram...")
     print("=" * 60)
+    print("⚠ IMPORTANT: You must authenticate as a USER (not a bot)")
+    print("   Enter your phone number when prompted.")
+    print("=" * 60)
     
-    client = TelegramClient('channel_finder_session', api_id, api_hash)
+    # Create client with USER credentials only (no bot_token parameter)
+    client = TelegramClient(session_name, api_id, api_hash)
     
     try:
+        # Start client - this will prompt for phone number if not already authenticated
         client.start()
         print("✓ Connected!")
         
